@@ -12,16 +12,43 @@
 | `apple_solver.py` | 올클리어 판정 + 전체 제거 계획 계산 (판당 1번) |
 | `apple_overlay.py` | 투명 오버레이로 안내 (Windows 전용) |
 | `apple_templates.npz` | 학습한 숫자 모양 (학습 후 자동 생성) |
+| `install.bat` | Python과 필요한 패키지를 한 번에 설치 (선택) |
 
 ## 2. 설치
 
-Python 3.7 이상.
+**가장 쉬운 방법 (Windows 10/11)**: 폴더의 `install.bat`을 더블클릭하세요. Python이 없으면 자동으로 설치하고(이때 창을 닫았다가 `install.bat`을 한 번 더 실행), 필요한 패키지를 설치합니다.
+
+**명령어로 직접** (명령 프롬프트 `cmd`에 한 줄씩):
 
 ```
-pip install pyautogui opencv-python pytesseract numpy pillow
+winget install -e --id Python.Python.3.12
+```
+설치가 끝나면 cmd 창을 닫고 새로 연 뒤:
+```
+python -m pip install pyautogui opencv-python numpy
 ```
 
-Tesseract 프로그램은 숫자 모양 학습을 마친 뒤에는 없어도 됩니다 (학습 중 OCR 추천값을 쓰려면 설치).
+이미 Python 3.8 이상이 있다면 두 번째 줄만 실행하면 됩니다. `winget`이 없으면 https://www.python.org/downloads/ 에서 설치하되 설치 화면 아래의 **Add python.exe to PATH**를 꼭 체크하세요.
+
+Tesseract(OCR)는 쓰지 않아도 됩니다. 숫자는 `--learn`으로 직접 알려 주는 모양 비교로 읽습니다 (학습 창의 OCR 추천값만 사라집니다).
+
+`sum10_pair_finder_v2.py`가 `import pytesseract`를 하므로, 설치하지 않으려면 그 파일의 아래 부분을 고치세요 (`REGION` 값은 건드리지 않음).
+
+```python
+# 기존 (26번째 줄 근처)
+import pytesseract
+_TESS = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+if os.path.exists(_TESS):
+    pytesseract.pytesseract.tesseract_cmd = _TESS
+
+# 변경
+try:
+    import pytesseract
+except ImportError:
+    pytesseract = None
+```
+
+`--record`(영상 저장)를 쓸 때만 `pip install pillow`가 더 필요합니다 (보통 pyautogui와 함께 이미 설치됩니다).
 
 ## 3. 처음 한 번만 (PC가 바뀌면 다시)
 
