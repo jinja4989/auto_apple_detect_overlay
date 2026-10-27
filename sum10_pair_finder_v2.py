@@ -23,12 +23,12 @@ import time
 import cv2
 import numpy as np
 import pyautogui
-import pytesseract
+#import pytesseract
 
 # ───────────────────────── 설정 ─────────────────────────
-_TESS = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-if os.path.exists(_TESS):
-    pytesseract.pytesseract.tesseract_cmd = _TESS
+#_TESS = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+#if os.path.exists(_TESS):
+#    pytesseract.pytesseract.tesseract_cmd = _TESS
 
 REGION = (1135, 581, 708, 440)  # (left, top, width, height)  ← 기존 값으로 교체
 ROWS, COLS = 10, 17             # ← 실제 그리드 크기
