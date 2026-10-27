@@ -1,7 +1,7 @@
-# 사과게임 합10 안내기
+# 사과게임 쉐르파
 
 판을 처음 볼 때 **올클리어 가능 여부와 전체 제거 계획을 한 번만 계산**하고, 화면 위에 판정(예상 점수)과 지울 사과 박스를 안내합니다.
-지우는 것은 직접 드래그로 합니다 (자동 조작 없음).
+지우는 것은 직접 드래그로 합니다.
 
 ## 1. 필요한 파일 (모두 같은 폴더에)
 
@@ -30,24 +30,6 @@ python -m pip install pyautogui opencv-python numpy
 
 이미 Python 3.8 이상이 있다면 두 번째 줄만 실행하면 됩니다. `winget`이 없으면 https://www.python.org/downloads/ 에서 설치하되 설치 화면 아래의 **Add python.exe to PATH**를 꼭 체크하세요.
 
-Tesseract(OCR)는 쓰지 않아도 됩니다. 숫자는 `--learn`으로 직접 알려 주는 모양 비교로 읽습니다 (학습 창의 OCR 추천값만 사라집니다).
-
-`sum10_pair_finder_v2.py`가 `import pytesseract`를 하므로, 설치하지 않으려면 그 파일의 아래 부분을 고치세요 (`REGION` 값은 건드리지 않음).
-
-```python
-# 기존 (26번째 줄 근처)
-import pytesseract
-_TESS = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-if os.path.exists(_TESS):
-    pytesseract.pytesseract.tesseract_cmd = _TESS
-
-# 변경
-try:
-    import pytesseract
-except ImportError:
-    pytesseract = None
-```
-
 `--record`(영상 저장)를 쓸 때만 `pip install pillow`가 더 필요합니다 (보통 pyautogui와 함께 이미 설치됩니다).
 
 ## 3. 처음 한 번만 (PC가 바뀌면 다시)
@@ -68,7 +50,7 @@ python apple_detect.py --learn    # 숫자 모양 학습: 키보드 1~9 입력, 
 게임을 시작해 **사과가 가득 찬 상태**에서 실행하세요.
 
 ```
-python apple_overlay.py                # 기본 (분석 시간 6초)
+python apple_overlay.py                # 기본 (분석 시간 6초) // 보통 이걸로 하시면 됩니다
 python apple_overlay.py --think 10     # 분석 시간(초). 무작위 판에서 점수를 더 높이고 싶을 때
 python apple_overlay.py --record       # 자랑용: 박스·배너가 그려진 영상 저장 (demo.mp4)
 python apple_overlay.py --record 내영상.mp4
@@ -114,7 +96,7 @@ python apple_detect.py --check --solve
 
 ## 6. 제한 사항
 
-- 오버레이는 **Windows 전용**입니다. 모니터가 여러 대면 게임을 **주 모니터**에 띄우세요.
+- 오버레이는 **Windows 전용**입니다. 모니터가 여러 대면 게임을 **주 모니터**에 띄우세요 무조건 **주 모니터**에 띄우고 해야지 원할한 진행 가능합니다.
 - 숫자를 한 개라도 잘못 읽으면 계획이 틀릴 수 있습니다. 인식 실패(`?`, 주황 점선) 칸은 계획에서 제외됩니다.
 - 판정은 "계획 탐색 결과"입니다. 올클리어 경로를 못 찾았다고 반드시 불가능하다는 뜻은 아닙니다 (합계가 10의 배수가 아닐 때만 확정).
 - 게임 규칙상 허용되는 범위에서만 사용하세요.
