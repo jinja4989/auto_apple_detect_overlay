@@ -28,6 +28,7 @@ import tkinter as tk
 import cv2
 
 import apple_detect as ad
+import apple_drag as dr
 import apple_solver as asv
 import sum10_pair_finder_v2 as v2
 
@@ -157,7 +158,9 @@ def draw(canvas, apples, shown, sx, sy, banner=("", "info")):
 
     single = len(shown) == 1
     for i, group in enumerate(shown):                                 # group = 사과 2개 이상의 묶음
-        members = [by[(r, c)] for r, c, _ in group]
+        members = [by[(r, c)] for r, c, _ in group if (r, c) in by]
+        if not members:
+            continue
         x0 = min(m.x for m in members) / sx - 4
         y0 = min(m.y for m in members) / sy - 4
         x1 = max(m.x + m.w for m in members) / sx + 4
@@ -177,6 +180,39 @@ def describe(shown, status="", banner=("", "info")):
         print(f"  지울 수 있는 박스 {len(shown)}개 (아무 순서로 지워도 됩니다)")
 
 
+MAX_TRIES = 6
+
+
+def auto_drag(shown, apples, img, tries, speed, pitch=(None, None), fracs=(dr.START_FRAC, dr.END_FRAC)):
+    """보이는 박스 중 앞에서부터 아직 시도 가능한 첫 박스를 드래그한다. 드래그했으면 True.
+    지워지지 않아 같은 박스가 다시 보이면 더 느리고 넓게 재시도하고, MAX_TRIES 번 실패하면 건너뛴다.
+    (주의: ad.build_grid 를 부르면 사과의 행/열 번호가 덮어써져 화면 그리기가 어긋나므로 호출하지 않는다.)"""
+    at = {(p.r, p.c): p for p in apples}
+    cands = []
+    for g in shown:
+        members = [at[(r, c)] for r, c, _ in g if (r, c) in at]
+        if len(members) == len(g):                                    # 일부만 보이면 드래그하지 않음 (엉뚱한 합 방지)
+            cands.append((tuple(sorted((r, c) for r, c, _ in g)), members))
+    for k in [k for k in tries if k not in {c[0] for c in cands}]:
+        del tries[k]                                                  # 지워져서 더 안 보이는 박스 기록 정리
+    for key, members in cands:
+        if tries.get(key, 0) >= MAX_TRIES:
+            continue
+        t = tries[key] = tries.get(key, 0) + 1
+        start_m = dr.box_margin(apples, pitch[0], pitch[1], fracs[0])
+        end_m = dr.box_margin(apples, pitch[0], pitch[1], fracs[1])
+        box = dr.member_box(members, start_m, end_m, extra=1.5 * (t - 1))
+        x0, y0, x1, y1 = dr.to_screen(box, img)
+        dr.drag((x0, y0), (x1, y1), speed * (1 + 0.5 * (t - 1)))
+        dr.park()
+        if t > 1:
+            print(f"[자동 드래그] 지워지지 않아 재시도 {t}/{MAX_TRIES}회")
+        if t >= MAX_TRIES:
+            print("[자동 드래그] 같은 박스가 계속 지워지지 않아 건너뜁니다. --auto-speed / --auto-wait 를 키워 보세요.")
+        return True
+    return False
+
+
 def main():
     if os.name != "nt":
         sys.exit("이 오버레이는 Windows 전용입니다. 다른 OS에서는 apple_detect.py --check --solve 를 사용하세요.")
@@ -186,8 +222,19 @@ def main():
                     help="분석 시간(초). 무작위 판에서 점수를 더 높이고 싶을 때 늘림 (기본 %(default)s)")
     ap.add_argument("--record", nargs="?", const="demo.mp4", default=None, metavar="파일",
                     help="박스와 배너를 게임 화면에 직접 그려 넣은 영상으로 저장 (기본 demo.mp4). 오버레이는 화면 녹화에 안 찍히므로 자랑용")
+    ap.add_argument("--auto", action="store_true",
+                    help="계획의 다음 박스를 자동으로 드래그해 지움 (지워지는 즉시 다음 박스로). 중단: ESC")
+    ap.add_argument("--auto-speed", type=float, default=0.2, help="--auto 드래그 한 번에 쓰는 시간(초). 불안정하면 키우세요 (기본 %(default)s)")
+    ap.add_argument("--auto-wait", type=float, default=0.2, help="--auto 에서 드래그 뒤 대기(초). 드래그가 씹히면 키우세요 (기본 %(default)s)")
+    ap.add_argument("--margin", type=float, default=dr.START_FRAC,
+                    help="자동 드래그 시작점(왼쪽 위) 여백: 사과 사이 빈틈 대비 비율 (기본 %(default)s)")
+    ap.add_argument("--end-margin", type=float, default=dr.END_FRAC,
+                    help="자동 드래그 끝점(오른쪽 아래) 여백 비율. 끝점을 더 넉넉히 늘리려면 키움 (기본 %(default)s, 1.0 이상은 사과가 일부만 걸쳐도 지워지는 게임에서 이웃이 걸릴 수 있음)")
+    ap.add_argument("--no-auto-region", action="store_true", help="게임 영역 자동 인식을 끄고 sum10_pair_finder_v2.py 의 REGION 사용")
     a = ap.parse_args()
 
+    dr.setup()
+    ad.ensure_region(not a.no_auto_region)                            # 게임판 위치를 화면에서 자동으로 찾음 (오버레이 생성 전)
     lock = ad.GridLock()                                              # 처음 격자 눈금 기억
     planner = asv.Planner(a.think)
     print("[인식] 템플릿 매칭 사용" if ad.load_templates()
@@ -199,6 +246,9 @@ def main():
     print("실행 중... 종료: ESC / 새 판 시작·다시 분석: F9")
     print("※ 사과가 가득 찬 처음 상태에서 실행하면 가장 정확합니다.")
     state = {"sig": None, "key": None}
+    tries = {}                                                        # 자동 드래그: 같은 박스를 몇 번 시도했는지
+    if a.auto:
+        print("[자동 드래그] 켜짐: 계획의 박스를 자동으로 지웁니다. 중단: ESC 또는 마우스를 화면 왼쪽 위 모서리로")
     latest = {"v": ([], [], ("", "info"))}                            # 녹화 스레드가 읽는 최신 화면 상태
     stop = threading.Event()
     rec = None
@@ -236,6 +286,23 @@ def main():
         banner = planner.banner
         latest["v"] = (apples, list(shown), banner)
 
+        dragged = False
+        fb_keys = tuple(sorted(tuple(sorted((r, c) for r, c, _ in g)) for g in shown)) if kind == "fallback" else None
+        stable = kind != "fallback" or fb_keys == state.get("fb")  # 계획 이탈 상태의 즉석 박스는 두 번 연속 같아야 드래그
+        state["fb"] = fb_keys
+        if a.auto and shown and kind in ("plan", "fallback") and stable:
+            try:
+                dragged = auto_drag(shown, apples, img, tries, a.auto_speed,
+                                    (lock.x[0] if lock.x else None, lock.y[0] if lock.y else None),
+                                    (a.margin, a.end_margin))
+            except Exception as e:                                    # 마우스를 모서리로 밀었을 때(안전장치) 등
+                print("[자동 드래그] 중단:", type(e).__name__)
+                root.destroy()
+                return
+        if dragged:
+            state["sig"] = None
+            time.sleep(a.auto_wait)                                   # 지워지는 연출이 끝나고 다음 드래그가 씹히지 않도록 대기
+
         sig = (tuple((p.r, p.c, p.val) for p in apples), tuple(shown), status, banner)
         if sig != state["sig"]:
             state["sig"] = sig
@@ -245,7 +312,7 @@ def main():
             if key != state["key"]:
                 state["key"] = key
                 describe(shown, status, banner)
-        root.after(int(v2.INTERVAL * 1000), tick)
+        root.after(10 if a.auto else int(v2.INTERVAL * 1000), tick)  # 자동 모드는 쉬지 않고 바로 다음 박스로
 
     root.after(100, tick)
     try:

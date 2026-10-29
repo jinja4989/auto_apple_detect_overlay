@@ -25,6 +25,7 @@ import time
 import numpy as np
 
 WALL = 100
+NEWBOARD_CONFIRM = 1.5       # 새 판으로 의심되는 상태가 이 시간(초) 이상 계속돼야 새 판으로 인정 (제거 연출 중 일시적 변화 무시)
 PLAN_SECONDS = 6.0          # 판을 처음 볼 때 계획을 계산하는 시간(초). 길수록 더 좋은 순서
 
 
@@ -236,6 +237,10 @@ class Planner:
         self.solvers = {}
         self.plan = None
         self.last_live = None
+        self.min_live = None                                         # 지금까지 본 가장 적은 사과 수
+        self.peak_live = 0                                           # 분석 시작 시점의 사과 수(판의 크기)
+        self._susp = {}                                              # 새 판 의심이 시작된 시각
+        self._last_ret = None                                        # 직전 안내 (의심 구간에 유지)
         self.banner = ("판 분석 중...", "info")
         self._progress = None          # (현재 최고 점수, 탐색 폭)
         self._quick = None             # 계산 전에 바로 알 수 있는 판정 (합계가 10의 배수가 아님)
@@ -267,6 +272,10 @@ class Planner:
         self._gen += 1
         self.plan = None
         self.last_live = None
+        self.min_live = None                                         # 지금까지 본 가장 적은 사과 수
+        self.peak_live = 0                                           # 분석 시작 시점의 사과 수(판의 크기)
+        self._susp = {}
+        self._last_ret = None
         self._result = None
 
     def _start(self, cur):
@@ -316,14 +325,45 @@ class Planner:
 
     # ── 매 화면마다 호출 (계산 없음, 순간 처리) ──
     def update(self, grid):
+        """_update 의 결과를 기억해 두었다가, 새 판 의심 구간(NEWBOARD_CONFIRM 초)에는 직전 안내를 유지한다."""
+        ret = self._update(grid)
+        if ret[2] in ("plan", "done", "fallback"):
+            self._last_ret = ret
+        return ret
+
+    def _hold(self):
+        """의심 구간: 직전 박스는 화면에 그대로 두되 종류를 'hold'로 바꿔 자동 드래그가 옛 박스를 쓰지 않게 한다."""
+        shown, status, _ = self._last_ret
+        return shown, status + " · 새 판 확인 중", "hold"
+
+    def _confirm(self, kind, reason):
+        """같은 '새 판 의심'이 NEWBOARD_CONFIRM 초 이상 계속될 때만 True (지우는 연출의 일시적 변화는 무시)."""
+        now = time.time()
+        t0 = self._susp.setdefault(kind, now)
+        if now - t0 >= NEWBOARD_CONFIRM:
+            print(f"[새 판 감지] {reason} : 다시 분석합니다 (F9로도 수동 가능)")
+            return True
+        return False
+
+    def _update(self, grid):
         """→ (묶음 목록, 상태 문장, 종류)
         종류: 'plan' 계획 안내 / 'computing' 계산 중 / 'fallback' 계획 이탈 / 'done' 모두 완료 / 'empty' 사과 없음"""
         cur = self.norm(grid)
         if not cur or not cur[0]:
             return [], "사과 없음", "empty"
         live = sum(1 for row in cur for v in row if v > 0)         # '?' 칸도 사과로 센다 (읽기 실패와 무관하게)
-        if self.last_live is not None and live > self.last_live + 2:
-            self.reset()                                             # 사과가 다시 늘어남 = 새 판
+        # 새 판 감지: 지우는 연출 중 사과가 잠깐 안 읽혔다가 다시 읽히는 흔들림(수 개)은 무시하고,
+        # '지금까지 본 최저치보다 크게(판의 15% 또는 12개 이상) 늘었을 때'만 새 판으로 본다.
+        if self.min_live is not None and live > self.min_live + max(12, int(0.15 * self.peak_live)):
+            if self._confirm("count", f"사과 수 {self.min_live} → {live}"):
+                self.reset()
+            elif self._last_ret is not None:
+                return self._hold()                                  # 연출 중일 수 있으니 직전 안내 유지(드래그는 안 함)
+        else:
+            self._susp.pop("count", None)
+        if self.min_live is None or live < self.min_live:
+            self.min_live = live
+        self.peak_live = max(self.peak_live, live)
         self.last_live = live
 
         if self._result is not None and self._result[0] == self._gen:
@@ -332,9 +372,13 @@ class Planner:
         if self.plan is not None:
             R, C = self.plan["shape"]
             fit = self._fit(cur, R, C)
-            if fit is None:                                          # 격자가 계획보다 커짐 = 새 판
-                self.reset()
+            if fit is None:                                          # 격자가 계획보다 커짐 = 새 판(이거나 연출 중 잘못 읽힌 것)
+                if self._confirm("fit", f"격자 크기 {len(cur)}x{len(cur[0])} > 계획 {R}x{C}"):
+                    self.reset()
+                elif self._last_ret is not None:
+                    return self._hold()
             else:
+                self._susp.pop("fit", None)
                 info = self.plan["info"]
                 states = [self._step_state(st, fit) for st in self.plan["steps"]]
                 n, done, broken = len(states), states.count("done"), states.count("broken")

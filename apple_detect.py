@@ -303,6 +303,72 @@ def analyze(img, lock=None):
     return apples, grid, find_rects(grid)
 
 
+# ───────────────────── 게임 영역 자동 설정 ─────────────────────
+def auto_region(shot=None):
+    """전체 화면에서 사과 덩어리를 찾아 게임 영역 (left, top, width, height) 을 자동으로 정한다. 못 찾으면 None.
+    사과가 가득 찬 처음 화면에서 실행해야 격자 전체가 들어온다."""
+    if shot is None:
+        try:
+            import ctypes
+            ctypes.windll.shcore.SetProcessDpiAwareness(2)
+        except Exception:
+            pass
+        shot = cv2.cvtColor(np.array(v2.pyautogui.screenshot()), cv2.COLOR_RGB2BGR)
+    apples = find_apples(shot)
+    if len(apples) < 10:
+        return None
+    w = float(np.median([a.w for a in apples]))
+    pts = np.array([(a.cx, a.cy) for a in apples])
+    parent = list(range(len(apples)))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for i in range(len(apples)):                        # 가까운 사과끼리 묶어 가장 큰 덩어리 = 게임판
+        d = np.hypot(pts[:, 0] - pts[i, 0], pts[:, 1] - pts[i, 1])
+        for j in np.nonzero(d <= 2.2 * w)[0]:
+            parent[find(int(j))] = find(i)
+    roots = {}
+    for i in range(len(apples)):
+        roots.setdefault(find(i), []).append(i)
+    comp = max(roots.values(), key=len)
+    if len(comp) < 10:
+        return None
+    grp = [apples[i] for i in comp]
+    pad = int(0.9 * w)
+    H, W = shot.shape[:2]
+    left = max(0, int(min(a.x for a in grp)) - pad)
+    top = max(0, int(min(a.y for a in grp)) - pad - 26)   # 위쪽은 판정 배너 자리
+    right = min(W, int(max(a.x + a.w for a in grp)) + pad)
+    bottom = min(H, int(max(a.y + a.h for a in grp)) + pad)
+    return (left, top, right - left, bottom - top)
+
+
+def use_region(region):
+    """게임 영역을 적용한다 (v2.REGION 과 v2.capture 를 바꿔 끼움 → sum10_pair_finder_v2.py 파일은 수정하지 않는다)."""
+    v2.REGION = tuple(int(v) for v in region)
+
+    def _capture(region=None):
+        return cv2.cvtColor(np.array(v2.pyautogui.screenshot(region=v2.REGION)), cv2.COLOR_RGB2BGR)
+
+    v2.capture = _capture
+
+
+def ensure_region(auto=True):
+    """자동 인식 → 성공하면 적용, 실패하면 sum10_pair_finder_v2.py 의 REGION(수동 값)을 그대로 사용."""
+    if auto:
+        r = auto_region()
+        if r:
+            use_region(r)
+            print(f"[영역] 게임판을 자동으로 찾았습니다: REGION = {v2.REGION}")
+            return True
+        print(f"[영역] 화면에서 사과판을 못 찾아 기존 REGION {v2.REGION} 을 사용합니다. (사과가 가득 찬 상태인지 확인)")
+    return False
+
+
 # ───────────────────── 템플릿 저장/불러오기 ─────────────────────
 def load_templates():
     global _tpl_x, _tpl_y
@@ -320,10 +386,11 @@ def save_templates():
 
 
 # ───────────────────── 학습 / 확인 도구 ─────────────────────
-def learn():
+def learn(auto=True):
     load_templates()
     print("3초 후 화면을 캡처합니다. 게임 화면이 터미널에 가려지지 않게 해 주세요...")
     time.sleep(3)
+    ensure_region(auto)
     img = v2.capture()
     apples = find_apples(img)
     if not apples:
@@ -405,8 +472,9 @@ def learn():
         print("추가된 템플릿 없음")
 
 
-def check(solve=False):
+def check(solve=False, auto=True):
     has = load_templates()
+    ensure_region(auto)
     img = v2.capture()
     apples, grid, groups = analyze(img, GridLock())
     _, px, py = build_grid(apples)
@@ -464,8 +532,9 @@ if __name__ == "__main__":
     ap.add_argument("--learn", action="store_true")
     ap.add_argument("--check", action="store_true")
     ap.add_argument("--solve", action="store_true", help="올클리어 가능 여부 판정과 전체 제거 계획도 계산해 출력")
+    ap.add_argument("--no-auto-region", action="store_true", help="게임 영역 자동 인식을 끄고 sum10_pair_finder_v2.py 의 REGION 사용")
     a = ap.parse_args()
     if a.learn:
-        learn()
+        learn(not a.no_auto_region)
     else:
-        check(a.solve)
+        check(a.solve, not a.no_auto_region)

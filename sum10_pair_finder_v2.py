@@ -30,7 +30,7 @@ import pyautogui
 #if os.path.exists(_TESS):
 #    pytesseract.pytesseract.tesseract_cmd = _TESS
 
-REGION = (1135, 581, 708, 440)  # (left, top, width, height)  ← 기존 값으로 교체
+REGION = (1137, 551, 720, 427)  # (left, top, width, height)  ← 기존 값으로 교체
 ROWS, COLS = 10, 17             # ← 실제 그리드 크기
 TARGET_SUM = 10
 INTERVAL = 0.5                  # 갱신 주기(초)
